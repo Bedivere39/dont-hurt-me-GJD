@@ -1,94 +1,82 @@
 ---
 name: etf
-description: ETF份额数据分析工具 - 查询证券ETF份额变化、份额增减排行、ETF趋势等
+description: ETF 份额数据分析平台 - 通过 Web API 查询 ETF 份额、排名、持有人、汇金持仓等
 user-invocable: true
 ---
 
-# ETF份额数据分析工具
+# ETF 份额数据分析平台
 
-基于上海证券交易所数据的ETF份额分析工具。
+基于上海证券交易所数据的 ETF 份额分析与展示平台（Web 版）。
 
-## 数据更新时机
+> 在线访问: https://bedivere.space
+>
+> A 股清算后数据才更新，约晚上 8-10 点后才能查到当天数据。白天查到的"最新"实际是前一天的。
 
-**重要**: A股清算后数据才更新，约晚上8-10点后能查到当天数据。白天查不到当天数据是正常的。
+## 平台入口
 
-## 常用命令
+| 入口 | 用途 |
+|---|---|
+| https://bedivere.space | Web 前端（公开访问） |
+| https://bedivere.space/api/health | 后端健康检查 |
+| https://bedivere.space/api/etf/* | REST API 端点（详见 [docs/API.md](../../docs/API.md)） |
 
-### 1. 更新数据
+## API 速查
+
+所有端点前缀 `/api/etf`，返回 JSON。
+
+| 端点 | 用途 |
+|---|---|
+| `GET /list?page=N&per_page=N` | ETF 列表（分页） |
+| `GET /<sec_code>` | 单只 ETF 详情 |
+| `GET /<sec_code>/trend?days=N` | 份额趋势 |
+| `GET /ranking?sort_by=tot_vol\|change\|pct&limit=N` | 排行榜（按份额 / 变化 / 增幅） |
+| `GET /compare?codes=512880,510300&days=N` | 多只对比 |
+| `GET /rising?days=N` | 份额上升的 ETF |
+| `GET /securities?sort_by=volume\|change\|pct` | 证券/保险 ETF 专项 |
+| `GET /<sec_code>/holders` | 单只 ETF 十大持有人 |
+| `GET /holders-by-type?type=汇金&min_pct=0.5` | 按持有人类型查询 |
+| `GET /<sec_code>/huijin?mode=estimated\|actual` | 汇金系估算（`estimated` 含免责声明） |
+| `GET /stats/summary` | Dashboard 聚合（总数、最新日期、市场变化） |
+| `GET /data-status` | 数据完整性（最近 30 天每日记录数 + OK/LOW 状态） |
+
+## 用 curl 查询示例
+
 ```bash
-python -m src.etf.cli fetch 5
+# 份额最大前 10
+curl 'https://bedivere.space/api/etf/ranking?sort_by=tot_vol&limit=10'
+
+# 512880 证券 ETF 趋势（最近 30 天）
+curl 'https://bedivere.space/api/etf/512880/trend?days=30'
+
+# 份额上升的 ETF（最近 126 天）
+curl 'https://bedivere.space/api/etf/rising?days=126'
+
+# 持有人中含"汇金"且占比 >= 0.5%
+curl 'https://bedivere.space/api/etf/holders-by-type?type=%E6%B1%87%E9%87%91&min_pct=0.5'
+
+# 510330 汇金估算（actual 模式：基于最近 2 期报告期真实数据）
+curl 'https://bedivere.space/api/etf/510330/huijin?mode=actual'
+
+# Dashboard 聚合数据
+curl 'https://bedivere.space/api/etf/stats/summary'
+
+# 数据完整性（最近 30 天）
+curl 'https://bedivere.space/api/etf/data-status'
 ```
 
-### 2. 证券ETF份额变化
-```bash
-python -m src.etf.cli securities         # 按份额从高到低
-python -m src.etf.cli securities change   # 按变化从高到低
-python -m src.etf.cli securities pct      # 按增幅从高到低
-```
+## 数据库字段
 
-### 3. 份额增加/增幅排行
-```bash
-python -m src.etf.cli top 10      # 份额增加前10
-python -m src.etf.cli top_pct 10 # 份额增幅前10
-```
+详见 [docs/DATASHEET.md](../../docs/DATASHEET.md)。简版：
 
-### 4. 特定ETF查询
-```bash
-python -m src.etf.cli trend 510300   # 沪深300ETF
-python -m src.etf.cli trend 512880   # 证券ETF
-```
+- `etf_info` — ETF 基本信息（sec_code PK + sec_name + full_name + etf_type + list_date + fund_manager）
+- `etf_daily_share` — 每日份额（sec_code + stat_date 联合唯一，tot_vol 单位万份）
+- `etf_top_holders` — 十大持有人（sec_code + stat_date + holder_name + hold_volume + hold_ratio，滞后 4-5 月）
 
-### 5. 检查数据完整性
-```bash
-python -m src.etf.cli check
-```
+## 旧 CLI 工具
 
-### 6. 十大持有人数据
-```bash
-python -m src.etf.cli holders              # 采集所有ETF十大持有人（从新浪财经）
-python -m src.etf.cli holders 512880       # 查看某ETF十大持有人
-python -m src.etf.cli holders_type 保险    # 按持有人类型查询（如：保险/信托/私募）
-```
+CLI 工具已退役，原命令归档在 [docs/legacy-cli.md](../../docs/legacy-cli.md)。新功能请走 Web API。
 
-### 7. 生成趋势图HTML
-```bash
-python scripts/etf_trend.py 512880 500
-```
+## 数据更新
 
-### 8. 生成ETF对比图
-```bash
-python scripts/etf_compare.py 510300 500
-```
-
-## 数据库字段说明
-
-### etf_info - ETF基本信息
-
-| 字段      | 类型 | 说明              |
-| --------- | ---- | ----------------- |
-| sec_code  | TEXT | ETF代码 (PK)      |
-| sec_name  | TEXT | ETF简称           |
-| full_name | TEXT | ETF全称（含公司） |
-| etf_type  | TEXT | ETF类型           |
-
-### etf_daily_share - 每日份额
-
-| 字段      | 类型    | 说明           |
-| --------- | ------- | -------------- |
-| sec_code  | TEXT    | ETF代码 (PK)   |
-| stat_date | TEXT    | 日期 (PK)      |
-| tot_vol   | REAL    | 总份额（万份） |
-| num       | INTEGER | 排名           |
-
-### etf_top_holders - ETF十大持有人
-
-| 字段        | 类型    | 说明               |
-| ----------- | ------- | ------------------ |
-| sec_code    | TEXT    | ETF代码            |
-| stat_date   | TEXT    | 报告期（如2025-12-31） |
-| rank        | INTEGER | 排名（1-10）      |
-| holder_name | TEXT    | 持有人名称         |
-| holder_share| REAL    | 持有份额（份）     |
-| holder_pct  | REAL    | 占总份额比（%）    |
-
-> 数据来源：新浪财经基金档案页，每年4-5月更新年报，8-9月更新半年报。实时性约滞后4-5个月。
+计划由 cron 每天 21:00 触发 [backend/scripts/fetch_sse.py](../../backend/scripts/fetch_sse.py)，拉取 SSE 份额数据。
+当前数据迁移详见 [backend/scripts/migrate_data.py](../../backend/scripts/migrate_data.py) 和 [backend/scripts/migrate_holders.py](../../backend/scripts/migrate_holders.py)。

@@ -19,7 +19,8 @@ etf-dashboard/
 │   ├── scripts/
 │   │   ├── init_db.py         # 数据库初始化
 │   │   ├── migrate_data.py     # 数据迁移脚本
-│   │   └── fetch_data.sh      # 定时任务脚本
+│   │   ├── migrate_holders.py  # 持有人数据迁移
+│   │   └── fetch_sse.py       # SSE 数据采集（Phase 2）
 │   ├── tests/                  # 测试目录
 │   ├── wsgi.py                # WSGI 入口
 │   ├── run.py                 # 开发入口
@@ -246,7 +247,51 @@ crontab -l
 crontab -e
 ```
 
-默认配置：每天 06:00 执行数据采集
+### 5.1 SSE 数据采集（Cron）
+
+A股清算后数据在晚上 8-10 点才更新，因此建议在每晚 21:00 拉取当天的份额数据。
+
+**采集脚本：** `backend/scripts/fetch_sse.py`
+- 可选参数 `[days]`：采集最近多少个工作日的数据（默认 5，覆盖周末/节假日）
+- 数据源：上交所 `commonQuery.do?sqlId=COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L`
+- 写入：`etf_daily_share`（upsert via `db.session.merge`）+ `etf_info`
+- 深交所脚本为 TODO（暂未实现，可后续追加 `fetch_szse.py`）
+
+**添加到 crontab（A 股清算后每天 21:00 执行）：**
+
+```bash
+# 编辑 crontab
+crontab -e
+
+# 添加以下行（按需修改路径 / 用户）：
+0 21 * * * cd /opt/etf-dashboard/backend && source venv/bin/activate && python scripts/fetch_sse.py 5 >> /var/log/etf-fetch.log 2>&1
+```
+
+**说明：**
+- `>> /var/log/etf-fetch.log 2>&1`：输出与错误都重定向到日志，便于事后排查。
+- `days=5`：覆盖周末 + 1-2 天节假日余量，确保不会漏更。
+- 首次部署需手动创建日志文件并授权：
+
+  ```bash
+  sudo touch /var/log/etf-fetch.log
+  sudo chown $USER:$USER /var/log/etf-fetch.log
+  ```
+
+**手动执行（调试用）：**
+
+```bash
+cd /opt/etf-dashboard/backend
+source venv/bin/activate
+python scripts/fetch_sse.py 5        # 拉最近 5 个工作日
+FETCH_SSE_DAYS=10 python scripts/fetch_sse.py   # 走环境变量
+```
+
+**查看采集日志：**
+
+```bash
+tail -n 100 /var/log/etf-fetch.log
+grep -E "ERROR|失败|error" /var/log/etf-fetch.log
+```
 
 ---
 

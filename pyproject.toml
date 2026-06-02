@@ -3,22 +3,10 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "etf-analysis"
-version = "0.1.0"
-description = "ETF份额数据分析工具"
+name = "etf-dashboard"
+version = "1.1.0"
+description = "ETF 份额数据分析平台 (Web 版)"
 readme = "README.md"
-requires-python = ">=3.8"
-dependencies = [
-    "urllib3",
-    "chinese_calendar",
-]
-
-[project.optional-dependencies]
-dev = []
-
-[project.scripts]
-etf = "src.etf.cli:main"
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src.etf*"]
+requires-python = ">=3.13"
+# 真正的 Python 依赖见 backend/requirements.txt
+# 本文件仅保留项目元数据（不再打包 src/etf/，CLI 已退役）

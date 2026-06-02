@@ -1,0 +1,85 @@
+.holders-page h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 8px;
+}
+
+.holders-header {
+  margin-bottom: 24px;
+}
+
+.holders-subtitle {
+  font-size: 14px;
+  color: #8892b0;
+}
+
+.data-table {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16162a 100%);
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 212, 255, 0.1);
+}
+
+.data-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 16px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8892b0;
+  background: rgba(0, 0, 0, 0.2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.data-table td {
+  padding: 14px 20px;
+  font-size: 14px;
+  color: #ffffff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.data-table tr:hover {
+  background: rgba(0, 212, 255, 0.05);
+}
+
+.data-table .numeric {
+  font-variant-numeric: tabular-nums;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  color: #00D4FF;
+}
+
+.data-table .holder-name {
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.empty-state {
+  padding: 60px 20px;
+  text-align: center;
+  color: #8892b0;
+  font-size: 15px;
+}
+
+.error-state {
+  background: rgba(255, 59, 48, 0.1);
+  border: 1px solid rgba(255, 59, 48, 0.3);
+  color: #ff6b6b;
+  padding: 16px 20px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  color: #8892b0;
+  font-size: 16px;
+}

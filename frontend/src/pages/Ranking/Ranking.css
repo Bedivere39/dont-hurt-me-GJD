@@ -59,3 +59,109 @@
   font-weight: 600;
   color: #34C759;
 }
+
+.tab-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16162a 100%);
+  border: 1px solid rgba(0, 212, 255, 0.1);
+  border-radius: 12px;
+  margin-bottom: 24px;
+}
+
+.tab-button {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #8892b0;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.tab-button:hover {
+  color: #ffffff;
+  background: rgba(0, 212, 255, 0.06);
+}
+
+.tab-button.active {
+  background: rgba(0, 212, 255, 0.15);
+  color: #00D4FF;
+  box-shadow: 0 0 16px rgba(0, 212, 255, 0.2);
+}
+
+.change-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.vol-text {
+  font-size: 13px;
+  color: #34C759;
+  font-weight: 600;
+}
+
+.change-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+
+.change-pill.positive {
+  background: rgba(52, 199, 89, 0.12);
+  color: #34C759;
+  border: 1px solid rgba(52, 199, 89, 0.3);
+}
+
+.change-pill.negative {
+  background: rgba(255, 59, 48, 0.12);
+  color: #FF3B30;
+  border: 1px solid rgba(255, 59, 48, 0.3);
+}
+
+.skeleton-card {
+  height: 96px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.12) 50%, rgba(255, 255, 255, 0.04) 100%);
+  background-size: 200% 100%;
+  animation: ranking-shimmer 1.4s ease-in-out infinite;
+  cursor: default;
+}
+
+.skeleton-card:hover {
+  transform: none;
+  border-color: rgba(0, 212, 255, 0.1);
+  box-shadow: none;
+}
+
+@keyframes ranking-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.ranking-error,
+.ranking-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: #8892b0;
+  padding: 60px 20px;
+  font-size: 14px;
+}
+
+.ranking-error {
+  color: #FF6B61;
+  background: rgba(255, 59, 48, 0.08);
+  border: 1px solid rgba(255, 59, 48, 0.3);
+  border-radius: 12px;
+  margin-bottom: 16px;
+}

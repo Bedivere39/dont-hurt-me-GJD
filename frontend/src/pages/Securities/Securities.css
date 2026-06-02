@@ -1,0 +1,157 @@
+.securities-page {
+  color: #ffffff;
+}
+
+.securities-page .page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.securities-page .page-header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+}
+
+.securities-page .update-time {
+  font-size: 13px;
+  color: #00D4FF;
+  background: rgba(0, 212, 255, 0.1);
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(0, 212, 255, 0.2);
+}
+
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16162a 100%);
+  border-radius: 12px;
+  padding: 6px;
+  border: 1px solid rgba(0, 212, 255, 0.1);
+  width: fit-content;
+}
+
+.tab {
+  background: transparent;
+  border: none;
+  color: #8892b0;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab:hover {
+  color: #ffffff;
+}
+
+.tab.active {
+  background: rgba(0, 212, 255, 0.15);
+  color: #00D4FF;
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.2);
+}
+
+.securities-table {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16162a 100%);
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 212, 255, 0.1);
+}
+
+.securities-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.securities-table th {
+  text-align: left;
+  padding: 16px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8892b0;
+  background: rgba(0, 0, 0, 0.2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.securities-table td {
+  padding: 16px 20px;
+  font-size: 14px;
+  color: #ffffff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.securities-table tr {
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.securities-table tr:hover {
+  background: rgba(0, 212, 255, 0.08);
+}
+
+.securities-table tr:last-child td {
+  border-bottom: none;
+}
+
+.securities-table .code {
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: #00D4FF;
+  font-weight: 500;
+}
+
+.securities-table .name {
+  font-weight: 500;
+  color: #ffffff;
+}
+
+.securities-table .volume {
+  font-weight: 600;
+  color: #34C759;
+}
+
+.securities-table .change.positive,
+.securities-table .pct.positive {
+  color: #34C759;
+  font-weight: 600;
+}
+
+.securities-table .change.negative,
+.securities-table .pct.negative {
+  color: #FF3B30;
+  font-weight: 600;
+}
+
+.securities-table .date {
+  color: #8892b0;
+  font-size: 13px;
+}
+
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(0, 212, 255, 0.15);
+  color: #00D4FF;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  color: #8892b0;
+  font-size: 16px;
+}
