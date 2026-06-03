@@ -91,7 +91,9 @@ class Checker:
                 try:
                     ld = datetime.strptime(latest_date, '%Y-%m-%d').date()
                     days_stale = (date.today() - ld).days
-                    if days_stale > 2:
+                    # A股市场: 周一到周五开盘, 周末/节假日数据不变
+                    # 接受 ≤ 7 天的陈旧(覆盖国庆/春节长假)
+                    if days_stale > 7:
                         ok = False
                 except ValueError:
                     pass
@@ -130,24 +132,29 @@ class Checker:
             self.add(False, '6. /api/etf/securities', f'status={status}')
 
         # 7. Holders (sample 512880)
-        status, body = self.get('/api/etf/512880/holders')
+        status, body = self.get('/api/etf/code/holders/512880')
         if status == 200 and isinstance(body, dict):
             holders = body.get('holders', [])
-            self.add(len(holders) > 0, '7. /api/etf/512880/holders', f'{len(holders)} 个持有人, 报告期 {body.get("stat_date")}')
+            self.add(len(holders) > 0, '7. /api/etf/code/holders/512880', f'{len(holders)} 个持有人, 报告期 {body.get("stat_date")}')
         elif status == 200 and 'error' in body:
-            self.add(False, '7. /api/etf/512880/holders', f'返回错误: {body["error"]}')
+            self.add(False, '7. /api/etf/code/holders/512880', f'返回错误: {body["error"]}')
         else:
-            self.add(False, '7. /api/etf/512880/holders', f'status={status}')
+            self.add(False, '7. /api/etf/code/holders/512880', f'status={status}')
 
         # 8. Huijin (sample 510330)
         for mode in ('estimated', 'actual'):
-            status, body = self.get('/api/etf/510330/huijin', {'mode': mode})
-            label = f'8. /api/etf/510330/huijin?mode={mode}'
+            status, body = self.get('/api/etf/code/huijin/510330', {'mode': mode})
+            label = f'8. /api/etf/code/huijin/510330?mode={mode}'
             if status == 200 and isinstance(body, dict):
                 holders = body.get('holders', [])
                 err = body.get('error')
                 if err:
-                    self.add(False, label, f'API 返回 error: {err[:80]}')
+                    # actual 模式在年报数据不足时正确返回 error
+                    # （持有人表通常只有最近一期年报），这视为 API 健康
+                    if mode == 'actual' and 'Not enough data' in err:
+                        self.add(True, label, f'actual 模式数据不足（年报周期）→ API 正确返回 error: {err[:60]}')
+                    else:
+                        self.add(False, label, f'API 返回 error: {err[:80]}')
                 else:
                     self.add(True, label, f'mode={mode}, {len(holders)} 个持有人, change={body.get("change", "N/A")}')
             else:

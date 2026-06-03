@@ -175,7 +175,10 @@ def get_securities():
     ).filter(
         db.or_(
             ETFInfo.full_name.ilike('%证券%'),
-            ETFInfo.full_name.ilike('%保险%')
+            ETFInfo.full_name.ilike('%保险%'),
+            # 兼容老数据 full_name 字段被截断/错位的情况
+            ETFInfo.sec_name.ilike('%证券%'),
+            ETFInfo.sec_name.ilike('%保险%'),
         ),
         ETFDailyShare.stat_date == latest
     )
