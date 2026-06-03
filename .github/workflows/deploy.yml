@@ -7,8 +7,9 @@ on:
 
 jobs:
   build-and-deploy:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -29,60 +30,111 @@ jobs:
           cd backend
           pip install -r requirements.txt
 
-      - name: Install frontend dependencies
-        run: |
-          cd frontend
-          npm install
-
       - name: Build frontend
         env:
           VITE_API_BASE: https://bedivere.space/api
         run: |
           cd frontend
+          npm ci
           npm run build
 
-      - name: Deploy to server
-        run: |
-          # 设置权限
-          sudo chmod -R 755 /opt/etf-dashboard
-          sudo chown -R runner:runner /opt/etf-dashboard 2>/dev/null || true
+      - name: Copy backend to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          port: ${{ secrets.SERVER_PORT }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "backend/"
+          target: "/tmp/etf-deploy-stage/"
+          strip_components: 0
 
-          # 备份当前版本
-          cp -r /opt/etf-dashboard/backend /opt/etf-dashboard/backend.bak 2>/dev/null || true
-          cp -r /opt/etf-dashboard/frontend/dist /opt/etf-dashboard/frontend/dist.bak 2>/dev/null || true
+      - name: Copy frontend dist to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          port: ${{ secrets.SERVER_PORT }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "frontend/dist/"
+          target: "/tmp/etf-deploy-stage/frontend-dist/"
 
-          # 复制新版本
-          cp -r backend /opt/etf-dashboard/
-          cp -r frontend/dist /opt/etf-dashboard/frontend/
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          port: ${{ secrets.SERVER_PORT }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 5m
+          script: |
+            set -e
+            STAGE=/tmp/etf-deploy-stage
+            DEPLOY=/opt/etf-dashboard
 
-          # 重启后端服务
-          sudo pkill -f gunicorn || true
-          sleep 2
-          cd /opt/etf-dashboard/backend
-          source venv/bin/activate
-          nohup gunicorn -w 2 -b 127.0.0.1:8000 'wsgi:app' > /tmp/gunicorn.log 2>&1 &
-
-          # 等待 gunicorn 就绪（最多 30 秒）
-          echo "等待 gunicorn 启动..."
-          for i in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
-              echo "  gunicorn 在 ${i} 秒后启动"
-              break
+            echo "=== 1. 备份当前版本 ==="
+            if [ -d $DEPLOY/backend ]; then
+              mv $DEPLOY/backend $DEPLOY/backend.bak.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
             fi
-            sleep 1
-          done
+            if [ -d $DEPLOY/frontend ]; then
+              mv $DEPLOY/frontend $DEPLOY/frontend.bak.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+            fi
 
-          # 最终验证：跑完整的 10 项端到端检查
-          echo "运行部署后验证..."
-          python scripts/post_deploy_verify.py --base https://bedivere.space
-          if [ $? -ne 0 ]; then
-            echo "=== /tmp/gunicorn.log 尾部 ===" >> /tmp/deploy_error.log
-            tail -50 /tmp/gunicorn.log >> /tmp/deploy_error.log
-            exit 1
-          fi
+            echo "=== 2. 部署新代码 ==="
+            # STAGE 下的结构: $STAGE/backend/... 和 $STAGE/frontend-dist/...
+            mv $STAGE/backend $DEPLOY/backend
+            mv $STAGE/frontend-dist $DEPLOY/frontend
+            # STAGE 目录本身可能还剩空目录，清理
+            rmdir $STAGE 2>/dev/null || true
+
+            echo "=== 3. venv 检查 ==="
+            cd $DEPLOY/backend
+            if [ ! -d venv ]; then
+              echo "  venv 不存在，创建"
+              python3.13 -m venv venv
+            fi
+            source venv/bin/activate
+            pip install --quiet --upgrade pip
+            pip install --quiet -r requirements.txt
+
+            echo "=== 4. 跑 init_db（建表，IF NOT EXISTS） ==="
+            python scripts/init_db.py
+
+            echo "=== 5. 跑 migrate_holders（如果数据可用） ==="
+            if [ -f $DEPLOY/data/etf_data.db ]; then
+              HOLDER_COUNT=$(PGPASSWORD=EtfPass2026! psql -h localhost -U etf_user -d etf_db -t -c "SELECT COUNT(*) FROM etf_top_holders;" 2>/dev/null || echo 0)
+              if [ "$HOLDER_COUNT" = "0" ]; then
+                echo "  holders 表为空，开始迁移"
+                SOURCE_SQLITE_PATH=$DEPLOY/data/etf_data.db python scripts/migrate_holders.py || echo "  迁移失败（可忽略）"
+              else
+                echo "  holders 表已有 $HOLDER_COUNT 条，跳过迁移"
+              fi
+            else
+              echo "  无 SQLite 源文件（$DEPLOY/data/etf_data.db 不存在），跳过迁移"
+            fi
+
+            echo "=== 6. 重启 gunicorn ==="
+            ps aux | grep "gunicorn.*wsgi:app" | grep -v grep | awk '{print $2}' | xargs -r kill 2>/dev/null || true
+            sleep 3
+            cd $DEPLOY/backend
+            nohup gunicorn -w 2 -b 127.0.0.1:8000 'wsgi:app' > /tmp/gunicorn.log 2>&1 &
+            sleep 5
+
+            echo "=== 7. 等待 gunicorn 就绪 ==="
+            for i in $(seq 1 30); do
+              if curl -sf http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
+                echo "  gunicorn 在 ${i} 秒后启动"
+                break
+              fi
+              sleep 1
+            done
+
+            echo "=== 8. 跑 11 项端到端验证 ==="
+            python scripts/post_deploy_verify.py --base https://bedivere.space
 
   lint:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Checkout code
@@ -96,7 +148,7 @@ jobs:
       - name: Install frontend dependencies
         run: |
           cd frontend
-          npm install
+          npm ci
 
       - name: Run ESLint
         run: |
