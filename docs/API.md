@@ -19,10 +19,10 @@ ETF 份额数据分析平台后端 REST API 参考。
   - [`GET /etf/rising`](#get-etfrising)
   - [`GET /etf/securities`](#get-etfsecurities)
 - [Holders](#holders)
-  - [`GET /etf/code/holders/{sec_code}`](#get-etfcodeholderssec_code)
+  - [`GET /etf/{sec_code}/holders`](#get-etfsec_codeholders)
   - [`GET /etf/holders-by-type`](#get-etfholders-by-type)
 - [Huijin](#huijin)
-  - [`GET /etf/code/huijin/{sec_code}`](#get-etfcodehuijinsec_code)
+  - [`GET /etf/{sec_code}/huijin`](#get-etfsec_codehuijin)
 - [System](#system)
   - [`GET /health`](#get-health)
   - [`GET /etf/stats/summary`](#get-etfstatssummary)
@@ -270,7 +270,7 @@ curl 'http://localhost:8000/api/etf/compare?codes=510300,510500&days=30'
 
 ## Holders
 
-### `GET /etf/code/holders/{sec_code}`
+### `GET /etf/{sec_code}/holders`
 
 获取单只 ETF 最新的十大持有人。
 
@@ -339,7 +339,7 @@ curl 'http://localhost:8000/api/etf/holders-by-type?type=%E6%B1%87%E9%87%91&min_
 
 ## Huijin
 
-### `GET /etf/code/huijin/{sec_code}`
+### `GET /etf/{sec_code}/huijin`
 
 中央汇金持仓分析。
 

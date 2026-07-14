@@ -132,19 +132,19 @@ class Checker:
             self.add(False, '6. /api/etf/securities', f'status={status}')
 
         # 7. Holders (sample 512880)
-        status, body = self.get('/api/etf/code/holders/512880')
+        status, body = self.get('/api/etf/512880/holders')
         if status == 200 and isinstance(body, dict):
             holders = body.get('holders', [])
-            self.add(len(holders) > 0, '7. /api/etf/code/holders/512880', f'{len(holders)} 个持有人, 报告期 {body.get("stat_date")}')
+            self.add(len(holders) > 0, '7. /api/etf/512880/holders', f'{len(holders)} 个持有人, 报告期 {body.get("stat_date")}')
         elif status == 200 and 'error' in body:
-            self.add(False, '7. /api/etf/code/holders/512880', f'返回错误: {body["error"]}')
+            self.add(False, '7. /api/etf/512880/holders', f'返回错误: {body["error"]}')
         else:
-            self.add(False, '7. /api/etf/code/holders/512880', f'status={status}')
+            self.add(False, '7. /api/etf/512880/holders', f'status={status}')
 
         # 8. Huijin (sample 510330)
         for mode in ('estimated', 'actual'):
-            status, body = self.get('/api/etf/code/huijin/510330', {'mode': mode})
-            label = f'8. /api/etf/code/huijin/510330?mode={mode}'
+            status, body = self.get('/api/etf/510330/huijin', {'mode': mode})
+            label = f'8. /api/etf/510330/huijin?mode={mode}'
             if status == 200 and isinstance(body, dict):
                 holders = body.get('holders', [])
                 err = body.get('error')

@@ -99,134 +99,25 @@ def compare_etf():
 @bp.route('/rising', methods=['GET'])
 def get_rising():
     days = request.args.get('days', 126, type=int)
-    if days <= 0:
-        return _bad_request('days must be positive')
-
-    start_date = datetime.now().date() - timedelta(days=days)
-    latest = get_latest_date()
-    if not latest:
-        return jsonify([])
-
-    latest_shares = {r.sec_code: r.tot_vol for r in db.session.query(
-        ETFDailyShare.sec_code, ETFDailyShare.tot_vol
-    ).filter(ETFDailyShare.stat_date == latest).all()}
-
-    earliest_subq = db.session.query(
-        ETFDailyShare.sec_code.label('sec_code'),
-        func.min(ETFDailyShare.stat_date).label('first_date')
-    ).filter(ETFDailyShare.stat_date >= start_date
-    ).group_by(ETFDailyShare.sec_code).subquery()
-
-    earliest_rows = db.session.query(
-        ETFDailyShare.sec_code,
-        ETFDailyShare.tot_vol,
-        ETFDailyShare.stat_date
-    ).join(
-        earliest_subq,
-        (ETFDailyShare.sec_code == earliest_subq.c.sec_code)
-        & (ETFDailyShare.stat_date == earliest_subq.c.first_date)
-    ).all()
-
-    earliest_shares = {r.sec_code: (r.tot_vol, r.stat_date) for r in earliest_rows}
-
-    etf_infos = {e.sec_code: e for e in ETFInfo.query.all()}
-
-    result = []
-    for sec_code, latest_vol in latest_shares.items():
-        if sec_code not in earliest_shares:
-            continue
-        start_vol, start_date_val = earliest_shares[sec_code]
-        if not start_vol or latest_vol <= start_vol:
-            continue
-        change_pct = ((latest_vol - start_vol) * 100.0) / start_vol
-        etf = etf_infos.get(sec_code)
-        result.append({
-            'sec_code': sec_code,
-            'sec_name': etf.sec_name if etf else None,
-            'etf_type': etf.etf_type if etf else None,
-            'start_vol': start_vol,
-            'latest_vol': latest_vol,
-            'change_pct': change_pct,
-            'start_date': str(start_date_val),
-            'end_date': str(latest)
-        })
-
-    result.sort(key=lambda x: x['change_pct'], reverse=True)
+    try:
+        result = etf_service.get_rising_etfs(days)
+    except ValueError as e:
+        return _bad_request(e)
     return jsonify(result)
 
 
 @bp.route('/securities', methods=['GET'])
 def get_securities():
     sort_by = request.args.get('sort_by', 'volume')
-    if sort_by not in ('volume', 'change', 'pct'):
-        return _bad_request("sort_by must be 'volume', 'change', or 'pct'")
-
-    latest = get_latest_date()
-    if not latest:
-        return jsonify([])
-
-    base = db.session.query(
-        ETFInfo.sec_code,
-        ETFInfo.sec_name,
-        ETFInfo.full_name,
-        ETFDailyShare.tot_vol,
-        ETFDailyShare.stat_date
-    ).join(ETFDailyShare, ETFInfo.sec_code == ETFDailyShare.sec_code
-    ).filter(
-        db.or_(
-            ETFInfo.full_name.ilike('%证券%'),
-            ETFInfo.full_name.ilike('%保险%'),
-            # 兼容老数据 full_name 字段被截断/错位的情况
-            ETFInfo.sec_name.ilike('%证券%'),
-            ETFInfo.sec_name.ilike('%保险%'),
-        ),
-        ETFDailyShare.stat_date == latest
-    )
-    rows = base.all()
-
-    if sort_by == 'volume':
-        rows = sorted(rows, key=lambda r: r.tot_vol or 0, reverse=True)
-        return jsonify([{
-            'sec_code': r.sec_code,
-            'sec_name': r.sec_name,
-            'full_name': r.full_name,
-            'tot_vol': r.tot_vol,
-            'stat_date': str(r.stat_date)
-        } for r in rows])
-
-    dates = get_latest_dates(2)
-    if len(dates) < 2:
-        return jsonify([])
-    prev_date = dates[1]
-
-    prev_shares = {r.sec_code: r.tot_vol for r in db.session.query(
-        ETFDailyShare.sec_code, ETFDailyShare.tot_vol
-    ).filter(ETFDailyShare.stat_date == prev_date).all()}
-
-    items = []
-    for r in rows:
-        prev_vol = prev_shares.get(r.sec_code, 0)
-        change = r.tot_vol - prev_vol
-        change_pct = (change * 100.0 / prev_vol) if prev_vol else 0
-        items.append({
-            'sec_code': r.sec_code,
-            'sec_name': r.sec_name,
-            'full_name': r.full_name,
-            'tot_vol': r.tot_vol,
-            'stat_date': str(r.stat_date),
-            'change': change,
-            'change_pct': change_pct
-        })
-
-    if sort_by == 'change':
-        items.sort(key=lambda x: x['change'], reverse=True)
-    else:
-        items.sort(key=lambda x: x['change_pct'], reverse=True)
-
-    return jsonify(items)
+    limit = request.args.get('limit', 50, type=int)
+    try:
+        result = etf_service.get_securities_etfs(sort_by, limit)
+    except ValueError as e:
+        return _bad_request(e)
+    return jsonify(result)
 
 
-@bp.route('/code/holders/<sec_code>', methods=['GET'])
+@bp.route('/<sec_code>/holders', methods=['GET'])
 def get_etf_holders(sec_code):
     try:
         holders = etf_service.get_etf_holders(sec_code)
@@ -275,177 +166,32 @@ def get_holders_by_type():
     return jsonify(enriched)
 
 
-@bp.route('/code/huijin/<sec_code>', methods=['GET'])
+@bp.route('/<sec_code>/huijin', methods=['GET'])
 def get_huijin(sec_code):
     mode = request.args.get('mode', 'estimated')
     if mode not in ('estimated', 'actual'):
         return _bad_request("mode must be 'estimated' or 'actual'")
-
-    etf = ETFInfo.query.get(sec_code)
-    if not etf:
-        return _bad_request(f'ETF {sec_code} not found')
-
-    latest_dates = [r[0] for r in db.session.query(ETFTopHolder.stat_date
-    ).filter(ETFTopHolder.sec_code == sec_code
-    ).distinct().order_by(ETFTopHolder.stat_date.desc()
-    ).limit(2).all()]
-
-    response = {
-        'sec_code': sec_code,
-        'sec_name': etf.sec_name,
-        'mode': mode,
-        'holders': [],
-        'dec31_holdings': None,
-        'latest_holdings': None,
-        'change': None,
-        'change_pct': None,
-        'disclaimer': None,
-        'error': None
-    }
-
-    if mode == 'actual':
-        if len(latest_dates) < 2:
-            response['error'] = 'Not enough data for actual mode'
-            return jsonify(response)
-
-        dec31_date = latest_dates[1]
-        latest_date = latest_dates[0]
-
-        dec31_holdings = db.session.query(func.sum(ETFTopHolder.hold_volume)
-        ).filter(ETFTopHolder.sec_code == sec_code, ETFTopHolder.stat_date == dec31_date
-        ).scalar() or 0
-
-        latest_holdings = db.session.query(func.sum(ETFTopHolder.hold_volume)
-        ).filter(ETFTopHolder.sec_code == sec_code, ETFTopHolder.stat_date == latest_date
-        ).scalar() or 0
-
-        change = latest_holdings - dec31_holdings
-        change_pct = (change * 100.0 / dec31_holdings) if dec31_holdings else 0
-
-        response['dec31_holdings'] = dec31_holdings
-        response['latest_holdings'] = latest_holdings
-        response['change'] = change
-        response['change_pct'] = change_pct
-
-        return jsonify(response)
-
-    if not latest_dates:
-        response['error'] = 'No holder data available'
-        return jsonify(response)
-
-    latest_date = latest_dates[0]
-
-    share_dates = get_latest_dates(2)
-    if len(share_dates) < 2:
-        response['error'] = 'Not enough share data for estimation'
-        return jsonify(response)
-
-    latest_share = db.session.query(ETFDailyShare.tot_vol
-    ).filter(ETFDailyShare.sec_code == sec_code, ETFDailyShare.stat_date == share_dates[0]
-    ).scalar()
-    prev_share = db.session.query(ETFDailyShare.tot_vol
-    ).filter(ETFDailyShare.sec_code == sec_code, ETFDailyShare.stat_date == share_dates[1]
-    ).scalar()
-
-    if not latest_share or not prev_share:
-        response['error'] = 'Insufficient share data'
-        return jsonify(response)
-
-    scale = latest_share / prev_share
-
-    latest_holders = ETFTopHolder.query.filter(
-        ETFTopHolder.sec_code == sec_code,
-        ETFTopHolder.stat_date == latest_date
-    ).all()
-
-    holders = []
-    dec31_holdings = 0
-    latest_holdings = 0
-    for h in latest_holders:
-        estimated_volume = h.hold_volume * scale
-        holders.append({
-            'holder_name': h.holder_name,
-            'hold_ratio': h.hold_ratio,
-            'reported_volume': h.hold_volume,
-            'estimated_volume': estimated_volume
-        })
-        dec31_holdings += h.hold_volume
-        latest_holdings += estimated_volume
-
-    change = latest_holdings - dec31_holdings
-    change_pct = (change * 100.0 / dec31_holdings) if dec31_holdings else 0
-
-    response['holders'] = holders
-    response['dec31_holdings'] = dec31_holdings
-    response['latest_holdings'] = latest_holdings
-    response['change'] = change
-    response['change_pct'] = change_pct
-    response['disclaimer'] = 'Estimated based on latest known holdings and total share changes'
-
-    return jsonify(response)
+    try:
+        res = etf_service.get_huijin_analysis(sec_code, mode)
+    except ValueError as e:
+        return _bad_request(e)
+    return jsonify(res)
 
 
 @bp.route('/stats/summary', methods=['GET'])
 def get_stats_summary():
-    total_etfs = db.session.query(func.count(ETFInfo.sec_code)).scalar() or 0
-    total_records = db.session.query(func.count(ETFDailyShare.id)).scalar() or 0
-
-    dates = get_latest_dates(2)
-    latest_date = dates[0] if dates else None
-    prev_date = dates[1] if len(dates) > 1 else None
-
-    total_market_cap = 0
-    if latest_date:
-        total_market_cap = db.session.query(func.sum(ETFDailyShare.tot_vol)
-        ).filter(ETFDailyShare.stat_date == latest_date
-        ).scalar() or 0
-
-    total_market_cap_prev = 0
-    if prev_date:
-        total_market_cap_prev = db.session.query(func.sum(ETFDailyShare.tot_vol)
-        ).filter(ETFDailyShare.stat_date == prev_date
-        ).scalar() or 0
-
-    total_market_cap_change = total_market_cap - total_market_cap_prev
-    market_change_pct = (total_market_cap_change * 100.0 / total_market_cap_prev) if total_market_cap_prev else 0
-
-    data_freshness_hours = None
-    if latest_date:
-        delta = datetime.now().date() - latest_date
-        data_freshness_hours = round(delta.total_seconds() / 3600, 1)
-
-    return jsonify({
-        'total_etfs': total_etfs,
-        'total_records': total_records,
-        'latest_date': str(latest_date) if latest_date else None,
-        'prev_date': str(prev_date) if prev_date else None,
-        'total_market_cap': total_market_cap,
-        'total_market_cap_change': total_market_cap_change,
-        'market_change_pct': market_change_pct,
-        'data_freshness_hours': data_freshness_hours
-    })
+    try:
+        res = etf_service.get_stats_summary()
+    except Exception as e:
+        return _bad_request(e)
+    return jsonify(res)
 
 
 @bp.route('/data-status', methods=['GET'])
 def get_data_status():
-    start_date = datetime.now().date() - timedelta(days=20)
-    latest_date = get_latest_date()
-
-    daily_counts = db.session.query(
-        ETFDailyShare.stat_date,
-        func.count(ETFDailyShare.id).label('count')
-    ).filter(ETFDailyShare.stat_date >= start_date
-    ).group_by(ETFDailyShare.stat_date
-    ).order_by(ETFDailyShare.stat_date.desc()
-    ).all()
-
-    result = [{
-        'date': str(r.stat_date),
-        'count': r.count,
-        'status': 'OK' if r.count > 800 else 'LOW'
-    } for r in daily_counts]
-
-    return jsonify({
-        'latest_date': str(latest_date) if latest_date else None,
-        'daily_counts': result
-    })
+    days = request.args.get('days', 20, type=int)
+    try:
+        res = etf_service.get_data_status(days)
+    except Exception as e:
+        return _bad_request(e)
+    return jsonify(res)

@@ -217,107 +217,134 @@ def get_rising_etfs(days):
     if days <= 0:
         raise ValueError('days must be positive')
 
-    cutoff = datetime.now().date() - timedelta(days=days)
-    latest, prev = _latest_two_subquery()
+    start_date = datetime.now().date() - timedelta(days=days)
+    
+    # 查找最新日期
+    latest_row = db.session.query(func.max(ETFDailyShare.stat_date)).first()
+    latest = latest_row[0] if latest_row else None
+    if not latest:
+        return []
 
-    # 取 [cutoff, latest_date] 窗口内最早一天与最新一天
-    earliest_in_window = db.session.query(
+    latest_shares = {r.sec_code: r.tot_vol for r in db.session.query(
+        ETFDailyShare.sec_code, ETFDailyShare.tot_vol
+    ).filter(ETFDailyShare.stat_date == latest).all()}
+
+    earliest_subq = db.session.query(
         ETFDailyShare.sec_code.label('sec_code'),
-        func.min(ETFDailyShare.stat_date).label('first_date'),
-    ).filter(ETFDailyShare.stat_date >= cutoff
+        func.min(ETFDailyShare.stat_date).label('first_date')
+    ).filter(ETFDailyShare.stat_date >= start_date
     ).group_by(ETFDailyShare.sec_code).subquery()
 
-    rows = db.session.query(
-        ETFInfo.sec_code,
-        ETFInfo.sec_name,
-        ETFDailyShare.tot_vol.label('latest_vol'),
+    earliest_rows = db.session.query(
+        ETFDailyShare.sec_code,
+        ETFDailyShare.tot_vol,
+        ETFDailyShare.stat_date
     ).join(
-        ETFInfo, ETFInfo.sec_code == ETFDailyShare.sec_code,
-    ).join(
-        latest, ETFInfo.sec_code == latest.c.sec_code,
-    ).filter(
-        ETFDailyShare.stat_date == latest.c.latest_date,
+        earliest_subq,
+        (ETFDailyShare.sec_code == earliest_subq.c.sec_code)
+        & (ETFDailyShare.stat_date == earliest_subq.c.first_date)
     ).all()
 
-    enriched = []
-    for r in rows:
-        first_vol = db.session.query(ETFDailyShare.tot_vol).filter(
-            ETFDailyShare.sec_code == r.sec_code,
-            ETFDailyShare.stat_date == earliest_in_window.c.first_date,
-        ).scalar() if False else None
-        # 注: SQLAlchemy 跨子查询关联较复杂, 退化为 python 端拉取 (单次, days<=365 可接受)
-        first_row = db.session.query(ETFDailyShare.tot_vol).filter(
-            ETFDailyShare.sec_code == r.sec_code,
-            ETFDailyShare.stat_date >= cutoff,
-        ).order_by(ETFDailyShare.stat_date.asc()).first()
-        first_vol = first_row[0] if first_row else None
+    earliest_shares = {r.sec_code: (r.tot_vol, r.stat_date) for r in earliest_rows}
 
-        if first_vol is None or r.latest_vol is None:
+    etf_infos = {e.sec_code: e for e in ETFInfo.query.all()}
+
+    result = []
+    for sec_code, latest_vol in latest_shares.items():
+        if sec_code not in earliest_shares:
             continue
-        if r.latest_vol > first_vol:
-            change = r.latest_vol - first_vol
-            pct = change / first_vol * 100.0 if first_vol else None
-            enriched.append({
-                'sec_code': r.sec_code,
-                'sec_name': r.sec_name,
-                'first_vol': first_vol,
-                'latest_vol': r.latest_vol,
-                'change': change,
-                'pct': pct,
-            })
-
-    enriched.sort(key=lambda x: x['pct'] or 0, reverse=True)
-    return enriched
-
-
-def get_securities_etfs(sort_by):
-    """获取所有证券ETF (etf_type=securities)，按 sort_by 排序。
-
-    sort_by 支持: tot_vol / change / pct
-    """
-    if sort_by not in _RANK_SORT_BUILDERS:
-        raise ValueError(f"sort_by must be one of {list(_RANK_SORT_BUILDERS)}")
-
-    latest, prev = _latest_two_subquery()
-
-    rows = db.session.query(
-        ETFInfo.sec_code,
-        ETFInfo.sec_name,
-        ETFDailyShare.tot_vol.label('tot_vol'),
-        latest.c.latest_date.label('stat_date'),
-    ).join(
-        ETFDailyShare, ETFDailyShare.sec_code == ETFInfo.sec_code,
-    ).join(
-        latest, ETFInfo.sec_code == latest.c.sec_code,
-    ).filter(
-        ETFInfo.etf_type == SECURITIES_ETF_TYPE,
-        ETFDailyShare.stat_date == latest.c.latest_date,
-    ).all()
-
-    enriched = []
-    for r in rows:
-        prev_vol = db.session.query(ETFDailyShare.tot_vol).filter(
-            ETFDailyShare.sec_code == r.sec_code,
-            ETFDailyShare.stat_date == prev.c.prev_date,
-        ).scalar()
-        change = (r.tot_vol - prev_vol) if prev_vol is not None else None
-        pct = (change / prev_vol * 100.0) if (prev_vol not in (None, 0) and change is not None) else None
-        enriched.append({
-            'sec_code': r.sec_code,
-            'sec_name': r.sec_name,
-            'tot_vol': r.tot_vol,
-            'change': change,
-            'pct': pct,
-            'stat_date': _serialize_date(r.stat_date),
+        start_vol, start_date_val = earliest_shares[sec_code]
+        if not start_vol or latest_vol <= start_vol:
+            continue
+        change_pct = ((latest_vol - start_vol) * 100.0) / start_vol
+        etf = etf_infos.get(sec_code)
+        result.append({
+            'sec_code': sec_code,
+            'sec_name': etf.sec_name if etf else None,
+            'etf_type': etf.etf_type if etf else None,
+            'start_vol': start_vol,
+            'latest_vol': latest_vol,
+            'change_pct': change_pct,
+            'start_date': str(start_date_val),
+            'end_date': str(latest)
         })
 
-    if sort_by == 'tot_vol':
-        enriched.sort(key=lambda x: x['tot_vol'] or 0, reverse=True)
-    elif sort_by == 'change':
-        enriched.sort(key=lambda x: (x['change'] is None, -(x['change'] or 0)))
-    elif sort_by == 'pct':
-        enriched.sort(key=lambda x: (x['pct'] is None, -(x['pct'] or 0)))
-    return enriched
+    result.sort(key=lambda x: x['change_pct'], reverse=True)
+    return result
+
+
+def get_securities_etfs(sort_by, limit=50):
+    """获取所有证券/保险 ETF，按 sort_by 排序。"""
+    if sort_by not in ('volume', 'change', 'pct'):
+        raise ValueError("sort_by must be 'volume', 'change', or 'pct'")
+
+    latest_row = db.session.query(func.max(ETFDailyShare.stat_date)).first()
+    latest = latest_row[0] if latest_row else None
+    if not latest:
+        return []
+
+    base = db.session.query(
+        ETFInfo.sec_code,
+        ETFInfo.sec_name,
+        ETFInfo.full_name,
+        ETFDailyShare.tot_vol,
+        ETFDailyShare.stat_date
+    ).join(ETFDailyShare, ETFInfo.sec_code == ETFDailyShare.sec_code
+    ).filter(
+        db.or_(
+            ETFInfo.full_name.ilike('%证券%'),
+            ETFInfo.full_name.ilike('%保险%'),
+            ETFInfo.sec_name.ilike('%证券%'),
+            ETFInfo.sec_name.ilike('%保险%'),
+        ),
+        ETFDailyShare.stat_date == latest
+    )
+    rows = base.all()
+
+    if sort_by == 'volume':
+        rows = sorted(rows, key=lambda r: r.tot_vol or 0, reverse=True)
+        return [{
+            'sec_code': r.sec_code,
+            'sec_name': r.sec_name,
+            'full_name': r.full_name,
+            'tot_vol': r.tot_vol,
+            'stat_date': str(r.stat_date)
+        } for r in rows[:limit]]
+
+    # 查最近两个交易日算 change/pct
+    latest_dates = [r[0] for r in db.session.query(ETFDailyShare.stat_date
+    ).distinct().order_by(ETFDailyShare.stat_date.desc()
+    ).limit(2).all()]
+
+    if len(latest_dates) < 2:
+        return []
+    prev_date = latest_dates[1]
+
+    prev_shares = {r.sec_code: r.tot_vol for r in db.session.query(
+        ETFDailyShare.sec_code, ETFDailyShare.tot_vol
+    ).filter(ETFDailyShare.stat_date == prev_date).all()}
+
+    items = []
+    for r in rows:
+        prev_vol = prev_shares.get(r.sec_code, 0)
+        change = r.tot_vol - prev_vol
+        change_pct = (change * 100.0 / prev_vol) if prev_vol else 0
+        items.append({
+            'sec_code': r.sec_code,
+            'sec_name': r.sec_name,
+            'full_name': r.full_name,
+            'tot_vol': r.tot_vol,
+            'stat_date': str(r.stat_date),
+            'change': change,
+            'change_pct': change_pct
+        })
+
+    if sort_by == 'change':
+        items.sort(key=lambda x: x['change'], reverse=True)
+    else:
+        items.sort(key=lambda x: x['change_pct'], reverse=True)
+
+    return items[:limit]
 
 
 def get_etf_holders(sec_code):
@@ -381,81 +408,176 @@ def get_holders_by_type(holder_type, min_pct):
 
 
 def get_huijin_analysis(sec_code, mode):
-    """中央汇金分析。
-
-    mode:
-        - 'history': 返回该 ETF 所有有汇金持仓的期次
-        - 'summary': 返回该 ETF 最新一期汇金持仓汇总
-    """
-    if mode not in ('history', 'summary'):
-        raise ValueError("mode must be 'history' or 'summary'")
-    if not ETFInfo.query.get(sec_code):
+    """中央汇金持仓分析（包含估算与实际模式）。"""
+    etf = ETFInfo.query.get(sec_code)
+    if not etf:
         raise ValueError(f'ETF {sec_code} not found')
 
-    q = ETFTopHolder.query.filter(
-        ETFTopHolder.sec_code == sec_code,
-        ETFTopHolder.holder_name.like(f'%{HUIJIN_KEYWORD}%'),
-    )
+    latest_dates = [r[0] for r in db.session.query(ETFTopHolder.stat_date
+    ).filter(ETFTopHolder.sec_code == sec_code
+    ).distinct().order_by(ETFTopHolder.stat_date.desc()
+    ).limit(2).all()]
 
-    if mode == 'summary':
-        latest_date = db.session.query(func.max(ETFTopHolder.stat_date)).filter(
-            ETFTopHolder.sec_code == sec_code,
-            ETFTopHolder.holder_name.like(f'%{HUIJIN_KEYWORD}%'),
-        ).scalar()
-        if not latest_date:
-            return {'sec_code': sec_code, 'holdings': []}
-        q = q.filter(ETFTopHolder.stat_date == latest_date)
-        return {
-            'sec_code': sec_code,
-            'stat_date': _serialize_date(latest_date),
-            'holdings': [{
-                'holder_name': h.holder_name,
-                'hold_volume': h.hold_volume,
-                'hold_ratio': h.hold_ratio,
-            } for h in q.all()],
-        }
-
-    # history
-    rows = q.order_by(ETFTopHolder.stat_date.desc()).all()
-    return {
+    response = {
         'sec_code': sec_code,
-        'history': [{
-            'stat_date': _serialize_date(h.stat_date),
-            'holder_name': h.holder_name,
-            'hold_volume': h.hold_volume,
-            'hold_ratio': h.hold_ratio,
-        } for h in rows],
+        'sec_name': etf.sec_name,
+        'mode': mode,
+        'holders': [],
+        'dec31_holdings': None,
+        'latest_holdings': None,
+        'change': None,
+        'change_pct': None,
+        'disclaimer': None,
+        'error': None
     }
+
+    if mode == 'actual':
+        if len(latest_dates) < 2:
+            response['error'] = 'Not enough data for actual mode'
+            return response
+
+        dec31_date = latest_dates[1]
+        latest_date = latest_dates[0]
+
+        dec31_holdings = db.session.query(func.sum(ETFTopHolder.hold_volume)
+        ).filter(ETFTopHolder.sec_code == sec_code, ETFTopHolder.stat_date == dec31_date
+        ).scalar() or 0
+
+        latest_holdings = db.session.query(func.sum(ETFTopHolder.hold_volume)
+        ).filter(ETFTopHolder.sec_code == sec_code, ETFTopHolder.stat_date == latest_date
+        ).scalar() or 0
+
+        change = latest_holdings - dec31_holdings
+        change_pct = (change * 100.0 / dec31_holdings) if dec31_holdings else 0
+
+        response['dec31_holdings'] = dec31_holdings
+        response['latest_holdings'] = latest_holdings
+        response['change'] = change
+        response['change_pct'] = change_pct
+
+        return response
+
+    if not latest_dates:
+        response['error'] = 'No holder data available'
+        return response
+
+    latest_date = latest_dates[0]
+
+    # 获取最新两个交易日
+    share_dates = get_latest_dates(2)
+    if len(share_dates) < 2:
+        response['error'] = 'Not enough share data for estimation'
+        return response
+
+    latest_share = db.session.query(ETFDailyShare.tot_vol
+    ).filter(ETFDailyShare.sec_code == sec_code, ETFDailyShare.stat_date == share_dates[0]
+    ).scalar()
+    prev_share = db.session.query(ETFDailyShare.tot_vol
+    ).filter(ETFDailyShare.sec_code == sec_code, ETFDailyShare.stat_date == share_dates[1]
+    ).scalar()
+
+    if not latest_share or not prev_share:
+        response['error'] = 'Insufficient share data'
+        return response
+
+    scale = latest_share / prev_share
+
+    latest_holders = ETFTopHolder.query.filter(
+        ETFTopHolder.sec_code == sec_code,
+        ETFTopHolder.stat_date == latest_date
+    ).all()
+
+    holders = []
+    dec31_holdings = 0
+    latest_holdings = 0
+    for h in latest_holders:
+        estimated_volume = h.hold_volume * scale
+        holders.append({
+            'holder_name': h.holder_name,
+            'hold_ratio': h.hold_ratio,
+            'reported_volume': h.hold_volume,
+            'estimated_volume': estimated_volume
+        })
+        dec31_holdings += h.hold_volume
+        latest_holdings += estimated_volume
+
+    change = latest_holdings - dec31_holdings
+    change_pct = (change * 100.0 / dec31_holdings) if dec31_holdings else 0
+
+    response['holders'] = holders
+    response['dec31_holdings'] = dec31_holdings
+    response['latest_holdings'] = latest_holdings
+    response['change'] = change
+    response['change_pct'] = change_pct
+    response['disclaimer'] = 'Estimated based on latest known holdings and total share changes'
+
+    return response
 
 
 def get_stats_summary():
-    """整体统计: ETF 数量、记录数、最新日期、覆盖范围。"""
+    """整体统计: ETF 数量、记录数、最新日期、总市值/变化、数据新鲜度。"""
     total_etfs = db.session.query(func.count(ETFInfo.sec_code)).scalar() or 0
     total_records = db.session.query(func.count(ETFDailyShare.id)).scalar() or 0
-    latest_date = db.session.query(func.max(ETFDailyShare.stat_date)).scalar()
-    earliest_date = db.session.query(func.min(ETFDailyShare.stat_date)).scalar()
+
+    latest_dates = get_latest_dates(2)
+    latest_date = datetime.strptime(latest_dates[0], '%Y-%m-%d').date() if latest_dates else None
+    prev_date = datetime.strptime(latest_dates[1], '%Y-%m-%d').date() if len(latest_dates) > 1 else None
+
+    total_market_cap = 0
+    if latest_date:
+        total_market_cap = db.session.query(func.sum(ETFDailyShare.tot_vol)
+        ).filter(ETFDailyShare.stat_date == latest_date
+        ).scalar() or 0
+
+    total_market_cap_prev = 0
+    if prev_date:
+        total_market_cap_prev = db.session.query(func.sum(ETFDailyShare.tot_vol)
+        ).filter(ETFDailyShare.stat_date == prev_date
+        ).scalar() or 0
+
+    total_market_cap_change = total_market_cap - total_market_cap_prev
+    market_change_pct = (total_market_cap_change * 100.0 / total_market_cap_prev) if total_market_cap_prev else 0
+
+    data_freshness_hours = None
+    if latest_date:
+        delta = datetime.now().date() - latest_date
+        data_freshness_hours = round(delta.total_seconds() / 3600, 1)
 
     return {
         'total_etfs': total_etfs,
         'total_records': total_records,
-        'latest_date': _serialize_date(latest_date),
-        'earliest_date': _serialize_date(earliest_date),
+        'latest_date': str(latest_date) if latest_date else None,
+        'prev_date': str(prev_date) if prev_date else None,
+        'total_market_cap': total_market_cap,
+        'total_market_cap_change': total_market_cap_change,
+        'market_change_pct': market_change_pct,
+        'data_freshness_hours': data_freshness_hours
     }
 
 
-def get_data_status():
-    """数据状态: 最新日期距今天数、各表是否有数据。"""
-    today = datetime.now().date()
-    latest_date = db.session.query(func.max(ETFDailyShare.stat_date)).scalar()
-    days_stale = (today - latest_date).days if latest_date else None
-    has_etf_info = db.session.query(ETFInfo.sec_code).first() is not None
-    has_daily = db.session.query(ETFDailyShare.id).first() is not None
-    has_holders = db.session.query(ETFTopHolder.id).first() is not None
+def get_data_status(days=20):
+    """数据完整性: 获取最近若干天每日记录数与状态。"""
+    start_date = datetime.now().date() - timedelta(days=days)
+    
+    # 查找最新日期
+    latest_row = db.session.query(func.max(ETFDailyShare.stat_date)).first()
+    latest_date = latest_row[0] if latest_row else None
+
+    daily_counts = db.session.query(
+        ETFDailyShare.stat_date,
+        func.count(ETFDailyShare.id).label('count')
+    ).filter(ETFDailyShare.stat_date >= start_date
+    ).group_by(ETFDailyShare.stat_date
+    ).order_by(ETFDailyShare.stat_date.desc()
+    ).all()
+
+    result = [{
+        'date': str(r.stat_date),
+        'count': r.count,
+        'status': 'OK' if r.count > 800 else 'LOW'
+    } for r in daily_counts]
 
     return {
-        'latest_date': _serialize_date(latest_date),
-        'days_stale': days_stale,
-        'has_etf_info': has_etf_info,
-        'has_daily_share': has_daily,
-        'has_top_holders': has_holders,
+        'latest_date': str(latest_date) if latest_date else None,
+        'daily_counts': result
     }

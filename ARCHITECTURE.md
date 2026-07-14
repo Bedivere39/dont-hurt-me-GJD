@@ -149,9 +149,9 @@ backend/
 | GET | `/api/etf/compare` | 多只对比 |
 | GET | `/api/etf/rising` | 份额上升的 ETF |
 | GET | `/api/etf/securities` | 证券/保险 ETF 专项 |
-| GET | `/api/etf/code/holders/<code>` | 单只持有人 |
+| GET | `/api/etf/<sec_code>/holders` | 单只持有人 |
 | GET | `/api/etf/holders-by-type` | 按持有人类型查询 |
-| GET | `/api/etf/code/huijin/<code>` | 汇金系估算（`mode`: `estimated` / `actual`） |
+| GET | `/api/etf/<sec_code>/huijin` | 汇金系估算（`mode`: `estimated` / `actual`） |
 | GET | `/api/etf/stats/summary` | Dashboard 聚合数据 |
 | GET | `/api/etf/data-status` | 数据完整性 |
 

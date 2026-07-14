@@ -7,6 +7,7 @@
 import os
 import sqlite3
 import sys
+from datetime import datetime
 
 # 允许从任意目录运行
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -49,9 +50,10 @@ with app.app_context():
             etf = ETFInfo(
                 sec_code=row[0],
                 sec_name=row[1],
-                full_name=row[2] if len(row) > 2 else None,
-                etf_type=row[3] if len(row) > 3 else None,
-                list_date=row[4] if len(row) > 4 and len(row[4]) == 10 else None,
+                etf_type=row[2] if len(row) > 2 else None,
+                full_name=row[4] if len(row) > 4 else None,
+                list_date=None,
+                fund_manager=None,
             )
             db.session.merge(etf)
         except Exception as e:
@@ -67,7 +69,7 @@ with app.app_context():
         try:
             share = ETFDailyShare(
                 sec_code=row[0],
-                stat_date=row[1],
+                stat_date=datetime.strptime(row[1], '%Y-%m-%d').date() if isinstance(row[1], str) else row[1],
                 tot_vol=row[2],
                 num=row[3] if len(row) > 3 else None,
                 close_price=row[4] if len(row) > 4 else None,
